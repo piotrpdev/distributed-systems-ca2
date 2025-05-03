@@ -36,3 +36,8 @@ __Feature:__
 ## Notes (Optional)
 
 [Any additional information about your solution you wish to draw attention to.] -->
+
+__Feature:__
+
++ Photographer:
+  + Log new Images - Completed and Tested.
