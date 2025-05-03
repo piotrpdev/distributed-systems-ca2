@@ -42,6 +42,7 @@ __Feature:__
 + Photographer:
   + Log new Images - Completed and Tested.
   + Metadata updating - Completed and Tested.
+  + Invalid image removal - Completed and Tested
 + Filtering:
   + Only send S3 events to Queue / "Log Image" lambda - Completed and Tested.
   + Only send events with metadata attributes to "Add Metadata" lambda - Completed and Tested.

@@ -28,9 +28,17 @@ export class GalleryStack extends cdk.Stack {
       displayName: "Gallery Topic",
     });
 
+    const imageDeadLetterQueue = new sqs.Queue(this, "image-dead-letter-queue",{
+      retentionPeriod: cdk.Duration.seconds(60),
+    })    
+
     const logImageQueue = new sqs.Queue(this, "log-image-queue", {
       receiveMessageWaitTime: cdk.Duration.seconds(5),
       retentionPeriod: cdk.Duration.seconds(60),
+      deadLetterQueue: {
+        queue: imageDeadLetterQueue,
+        maxReceiveCount: 1,
+      }
     });
 
     const imageTable = new dynamodb.Table(this, "ImageTable", {
@@ -63,6 +71,18 @@ export class GalleryStack extends cdk.Stack {
         TABLE_NAME: imageTable.tableName
       },
     });
+
+    const removeImageFn = new lambdanode.NodejsFunction(this, "RemoveImageFn",{
+      architecture: lambda.Architecture.ARM_64,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: `${__dirname}/../lambdas/removeImage.ts`,
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 128,
+      environment: {
+        REGION: "eu-west-1",
+        TABLE_NAME: imageTable.tableName
+      },
+    })
 
     imagesBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
@@ -98,8 +118,16 @@ export class GalleryStack extends cdk.Stack {
       })
     );
 
+    removeImageFn.addEventSource(
+      new events.SqsEventSource(imageDeadLetterQueue, {
+        maxBatchingWindow: cdk.Duration.seconds(5),
+        maxConcurrency: 2
+      })
+    )
+
     imageTable.grantReadWriteData(logImageFn);
     imageTable.grantReadWriteData(addMetadataFn);
+    imagesBucket.grantDelete(removeImageFn);
 
     new cdk.CfnOutput(this, "topicArn", {
       value: galleryTopic.topicArn,
