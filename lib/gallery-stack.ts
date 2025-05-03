@@ -30,6 +30,7 @@ export class GalleryStack extends cdk.Stack {
 
     const logImageQueue = new sqs.Queue(this, "log-image-queue", {
       receiveMessageWaitTime: cdk.Duration.seconds(5),
+      retentionPeriod: cdk.Duration.seconds(60),
     });
 
     const imageTable = new dynamodb.Table(this, "ImageTable", {
@@ -51,14 +52,44 @@ export class GalleryStack extends cdk.Stack {
       },
     });
 
+    const addMetadataFn = new lambdanode.NodejsFunction(this, "AddMetadataFn", {
+      architecture: lambda.Architecture.ARM_64,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: `${__dirname}/../lambdas/addMetadata.ts`,
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 128,
+      environment: {
+        REGION: "eu-west-1",
+        TABLE_NAME: imageTable.tableName
+      },
+    });
+
     imagesBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
       new s3n.SnsDestination(galleryTopic)
     );
 
     galleryTopic.addSubscription(
-      new subs.SqsSubscription(logImageQueue)
+      new subs.SqsSubscription(logImageQueue, {
+        filterPolicyWithMessageBody: {
+          Records: sns.FilterOrPolicy.policy({
+            eventName: sns.FilterOrPolicy.filter(sns.SubscriptionFilter.stringFilter({
+              allowlist: ["ObjectCreated:Put", "ObjectRemoved:Delete"],
+            })),
+          })
+        }
+      })
     );
+
+    galleryTopic.addSubscription(
+      new subs.LambdaSubscription(addMetadataFn, {
+        filterPolicy: {
+          "metadata_type": sns.SubscriptionFilter.stringFilter({
+            allowlist: ["Caption", "Date", "Photograper"]
+          })
+        }
+      }
+    ));
 
     logImageFn.addEventSource(
       new SqsEventSource(logImageQueue, {
@@ -68,6 +99,11 @@ export class GalleryStack extends cdk.Stack {
     );
 
     imageTable.grantReadWriteData(logImageFn);
+    imageTable.grantReadWriteData(addMetadataFn);
+
+    new cdk.CfnOutput(this, "topicArn", {
+      value: galleryTopic.topicArn,
+    });
 
     new cdk.CfnOutput(this, "bucketName", {
       value: imagesBucket.bucketName,

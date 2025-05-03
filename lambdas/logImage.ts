@@ -6,8 +6,17 @@ const ddbDocClient = createDDbDocClient();
 
 export const handler: SQSHandler = async (event, context) => {
   try {
+    console.log("Event: ", JSON.stringify(event));
+    
     for (const rec of event.Records) {
-      const recMsg = JSON.parse(JSON.parse(rec.body).Message);
+      const recBody = JSON.parse(rec.body);
+
+      // if (recBody?.Subject !== "Amazon S3 Notification") {
+      //   console.log("Not an S3 notification");
+      //   return;
+      // }
+
+      const recMsg = JSON.parse(recBody.Message);
       console.log("SNS: ", JSON.stringify(recMsg))
 
       if (!recMsg.Records) {
