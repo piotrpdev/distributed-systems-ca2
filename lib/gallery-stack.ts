@@ -72,7 +72,7 @@ export class GalleryStack extends cdk.Stack {
       },
     });
 
-    const removeImageFn = new lambdanode.NodejsFunction(this, "RemoveImageFn",{
+    const removeImageFn = new lambdanode.NodejsFunction(this, "RemoveImageFn", {
       architecture: lambda.Architecture.ARM_64,
       runtime: lambda.Runtime.NODEJS_22_X,
       entry: `${__dirname}/../lambdas/removeImage.ts`,
@@ -84,6 +84,18 @@ export class GalleryStack extends cdk.Stack {
       },
     })
 
+    const addStatusFn = new lambdanode.NodejsFunction(this, "AddStatusFn", {
+      architecture: lambda.Architecture.ARM_64,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: `${__dirname}/../lambdas/addStatus.ts`,
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 128,
+      environment: {
+        REGION: "eu-west-1",
+        TABLE_NAME: imageTable.tableName
+      },
+    });
+
     imagesBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
       new s3n.SnsDestination(galleryTopic)
@@ -94,7 +106,7 @@ export class GalleryStack extends cdk.Stack {
         filterPolicyWithMessageBody: {
           Records: sns.FilterOrPolicy.policy({
             eventName: sns.FilterOrPolicy.filter(sns.SubscriptionFilter.stringFilter({
-              allowlist: ["ObjectCreated:Put", "ObjectRemoved:Delete"],
+              allowlist: ["ObjectCreated:Put"],
             })),
           })
         }
@@ -110,6 +122,23 @@ export class GalleryStack extends cdk.Stack {
         }
       }
     ));
+
+    galleryTopic.addSubscription(
+      new subs.LambdaSubscription(addStatusFn, {
+        filterPolicyWithMessageBody: {
+          id: sns.FilterOrPolicy.filter(sns.SubscriptionFilter.stringFilter({
+            matchSuffixes: [".jpeg", ".png"]
+          })),
+          date: sns.FilterOrPolicy.filter(sns.SubscriptionFilter.existsFilter()),
+          update: sns.FilterOrPolicy.policy({
+            status: sns.FilterOrPolicy.filter(sns.SubscriptionFilter.stringFilter({
+              allowlist: ["Pass", "Reject"]
+            })),
+            reason: sns.FilterOrPolicy.filter(sns.SubscriptionFilter.existsFilter())
+          })
+        }
+      })
+    );
 
     logImageFn.addEventSource(
       new SqsEventSource(logImageQueue, {
@@ -127,6 +156,7 @@ export class GalleryStack extends cdk.Stack {
 
     imageTable.grantReadWriteData(logImageFn);
     imageTable.grantReadWriteData(addMetadataFn);
+    imageTable.grantReadWriteData(addStatusFn);
     imagesBucket.grantDelete(removeImageFn);
 
     new cdk.CfnOutput(this, "topicArn", {
